@@ -12,7 +12,6 @@ import (
 type UseCaseAuth struct {
 	userRepo   auth.RepositoryUser
 	secretWord []byte
-	//Добавить какую-нибудь информацию для токенов!
 }
 
 func NewUseCaseAuth(userRepo auth.RepositoryUser) *UseCaseAuth {
@@ -32,39 +31,31 @@ func (a *UseCaseAuth) SignUp(name, surname, mail, password string) error {
 	return a.userRepo.CreateUser(user)
 }
 
-func (a *UseCaseAuth) SignIn(mail, password string) (string, error) {
+func (a *UseCaseAuth) SignIn(mail, password string) (*models.User, string, error) {
 	user, err := a.userRepo.GetUser(mail, password)
 	if err == auth.ErrUserNotFound {
-		return "", err
+		return nil, "", err
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &auth.Claims{
 		Name:    user.Name,
 		Surname: user.Surname,
 		Mail:    user.Mail,
 	})
-	//return user.Username, nil
-	return token.SignedString(a.secretWord)
+	signedString, err := token.SignedString(a.secretWord)
+	return user, signedString, err
 }
 
-func (a *UseCaseAuth) List() []string {
+func (a *UseCaseAuth) List() []models.User {
 	users := a.userRepo.List()
-	var usersUsernames []string
+	var usersUsernames []models.User
 	for _, user := range users {
-		usersUsernames = append(usersUsernames, user.Mail)
+		usersUsernames = append(usersUsernames, *user)
 	}
 	return usersUsernames
 }
 
-func (a *UseCaseAuth) Parse(cookie string) (string, error) {
+func (a *UseCaseAuth) ParseToken(cookie string) (string, error) {
 	username, err := parser.ParseToken(cookie, a.secretWord)
-	if err != nil {
-		return "", err
-	}
-	return username, nil
-}
-
-func (a *UseCaseAuth) ParseKsenia(cookie string) (string, error) {
-	username, err := parser.ParseTokenForKsenia(cookie, a.secretWord)
 	if err != nil {
 		return "", err
 	}

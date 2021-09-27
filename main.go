@@ -12,6 +12,8 @@ import (
 	"os"
 )
 
+//Артёмин код
+//Установка допустимых параметров запросов с фронта (или наоборот - на фронт, не оч понял)
 func PreflightOptions(w http.ResponseWriter, r *http.Request) {
 	log.Info("In preflight")
 	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
@@ -36,7 +38,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		log.Fatal("$PORT must be set")
+		log.Error("$PORT must be set")
 	}
 
 	r := mux.NewRouter()
@@ -49,8 +51,9 @@ func main() {
 	r.HandleFunc("/", handler.MainPage).Methods("GET")
 	r.HandleFunc("/signup", handler.SignUp).Methods("POST")
 	r.HandleFunc("/signin", handler.SignIn).Methods("POST")
-	r.HandleFunc("/test", handler.Test).Methods("GET")
+
 	r.HandleFunc("/user", handler.User).Methods("GET")
+
 	r.HandleFunc("/list", handler.List).Methods("GET")
 	r.Methods("OPTIONS").HandlerFunc(PreflightOptions)
 	r.Methods("GET").HandlerFunc(PreflightGet)
@@ -66,7 +69,9 @@ func main() {
 	))
 
 	log.Info("Deploying. Port: ", port)
-	err := http.ListenAndServe(":"+port, r)
+
+	//err := http.ListenAndServe(":"+port, r)
+	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		log.Error("main error: ", err)
 	}
