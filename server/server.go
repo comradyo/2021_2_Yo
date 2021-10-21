@@ -3,11 +3,13 @@ package server
 import (
 	authDelivery "backend/auth/delivery/http"
 	"backend/auth/delivery/http/middleware"
-	authRepository "backend/auth/repository/localstorage"
+	authRepository "backend/auth/repository/postgres"
 	authUseCase "backend/auth/usecase"
-	eventRepository "backend/event/repository/localstorage"
+	eventRepository "backend/event/repository/postgres"
 	eventUseCase "backend/event/usecase"
 	"bufio"
+	"fmt"
+	gorilla_handlers "github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
 	httpSwagger "github.com/swaggo/http-swagger"
 	"os"
@@ -19,6 +21,7 @@ import (
 	"net/http"
 
 	log "backend/logger"
+	"github.com/spf13/viper"
 )
 
 type App struct {
@@ -63,11 +66,27 @@ func initDB(connStr string) (*sql.DB, error) {
 func NewApp() (*App, error) {
 	secret := getSecret("auth/secret.txt")
 
-	authR := authRepository.NewRepository()
+	user := viper.GetString("db.user")
+	password := viper.GetString("db.password")
+	host := viper.GetString("db.host")
+	port := viper.GetString("db.port")
+	dbname := viper.GetString("db.dbname")
+	sslmode := viper.GetString("db.sslmode")
+
+	connStr := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s", host, port, user, dbname, password, sslmode)
+	log.Info(connStr)
+
+	db, err := initDB(connStr)
+	if err != nil {
+		log.Error("NewApp : initDB error", err)
+		return nil, err
+	}
+
+	authR := authRepository.NewRepository(db)
 	authUC := authUseCase.NewUseCase(authR, []byte(secret))
 	authD := authDelivery.NewDelivery(authUC)
 
-	eventR := eventRepository.NewRepository()
+	eventR := eventRepository.NewRepository(db)
 	eventUC := eventUseCase.NewUseCase(eventR)
 	eventD := eventDelivery.NewDelivery(eventUC)
 
@@ -76,12 +95,13 @@ func NewApp() (*App, error) {
 	return &App{
 		authManager:  authD,
 		eventManager: eventD,
-		db:           nil,
+		db:           db,
 	}, nil
 }
 
 func (app *App) Run() error {
-	log.Debug("Server:Run()")
+	defer app.db.Close()
+
 	midwar := middleware.NewMiddleware()
 
 	authMux := mux.NewRouter()
@@ -89,24 +109,29 @@ func (app *App) Run() error {
 	authMux.HandleFunc("/login", app.authManager.SignIn).Methods("POST")
 	authMux.Use(midwar.Auth)
 
+	port := viper.GetString("port")
 	r := mux.NewRouter()
 
 	r.Handle("/signup", authMux)
 	r.Handle("/login", authMux)
 	r.HandleFunc("/user", app.authManager.User).Methods("GET")
 	r.HandleFunc("/events", app.eventManager.List).Methods("GET")
-	r.Methods("OPTIONS").HandlerFunc(preflight)
+	//r.Methods("OPTIONS").HandlerFunc(preflight)
 	r.PathPrefix("/documentation").Handler(httpSwagger.WrapHandler)
 
 	//Сначала будет вызываться recovery, потом cors, а потом logging
 	r.Use(midwar.Logging)
-	r.Use(midwar.CORS)
+	//r.Use(midwar.CORS)
 	r.Use(midwar.Recovery)
-	port := os.Getenv("PORT")
-	if port == "" {
-		log.Error("Server : PORT must be set")
-		port = "8080"
-	}
+	r.Use(gorilla_handlers.CORS(
+		gorilla_handlers.AllowedOrigins([]string{"https://bmstusssa.herokuapp.com"}),
+		gorilla_handlers.AllowedHeaders([]string{
+			"Accept", "Content-Type", "Content-Length",
+			"Accept-Encoding", "X-CSRF-Token", "csrf-token", "Authorization"}),
+		gorilla_handlers.AllowCredentials(),
+		gorilla_handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"}),
+	))
+
 	log.Info("Server:Run():Deploying, port = ", port)
 	err := http.ListenAndServe(":"+port, r)
 	if err != nil {
